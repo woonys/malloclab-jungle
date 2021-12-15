@@ -86,7 +86,7 @@ team_t team = {
 #define PREV_BLKP(bp) ((char*)(bp) - GET_SIZE((char*)(bp)-DSIZE)) /* 현재 블록 포인터에서 더블워드만큼 빼면 우리블록 헤더 -> 다음 블록 footer로 가서 사이즈 읽어내기 가능 */
 
 /* Free List 상에서의 이전, 이후 블록 포인터를 리턴 */
-
+/* Free list에서는 bp가 PREC을 가리키고 있고 SUCC는 그 다음 블록을 가리키고 있는 상태 */
 #define PREC_FREEP(bp) (*(void**)(bp)) // 이전 블록의 bp에 들어있는 주소값을 리턴
 #define SUCC_FREEP(bp) (*(void**)(bp + WSIZE)) // 이후 블록의 bp
 
@@ -306,4 +306,59 @@ void putFreeBlock(void* bp) {
 
 void removeBlock(void *bp) {
     // Free list의 첫번째 블록 없앨 때
+    if (bp == free_listp) {
+        PREC_FREEP(SUCC_FREEP(bp)) = NULL;
+        free_listp = SUCC_FREEP(bp);
+    }
+    // free list 안에서 없앨 때
+    else {
+        SUCC_FREEP(PREC_FREEP(bp)) = SUCC_FREEP(bp);
+        PREC_FREEP(SUCC_FREEP(bp)) = PREC_FREEP(bp);
+    }
+}
+
+/*
+mm_free - Freeing a block does nothing.
+*/
+
+void mm_free(void *bp) {
+    // 해당 블록의 size를 알아내 header와 footer의 정보를 수정.
+    size_t size = GET_SIZE(HDRP(bp));
+
+    // header와 footer를 설정
+
+    PUT(HDRP(bp), PACK(size, 0)); // size/0을 헤더에 입력
+    PUT(FTRP(bp), PACK(size, 0)); // size/0을 footer에 입력
+
+    // 만약 앞뒤 블록이 가용 상태면 연결
+    coalesce(bp);
+}
+
+/*
+mm_realloc: implimented simply in terms of mm_malloc and mm_free
+*/
+
+void *mm_realloc(void *ptr, size_t size)
+{
+    void *oldptr = ptr; // 크기를 조절하고 싶은 힙의 시작 포인터
+    void *newptr; // 크기 조절 뒤의 새 힙 시작 포인터
+    size_t copySize; // 복사할 힙 크기
+
+    newptr = mm_malloc(size);
+    if (newptr == NULL) {
+        return NULL;
+    }
+
+    // copysize: *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    copySize = GET_SIZE(HDRP(oldptr));
+
+    // 원래 메모리 크기보다 적은 크기를 realloc하면 크기에 맞는 메모리만 할당되고 나머지는 안 도니다.
+
+    if (size < copySize) {
+        copySize = size;
+    }
+
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
 }
